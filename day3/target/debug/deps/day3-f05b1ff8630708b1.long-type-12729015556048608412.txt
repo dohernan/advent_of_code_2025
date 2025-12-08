@@ -1,0 +1,1 @@
+std::iter::Map<std::str::Lines<'_>, fn(BatteryBank) -> BatteryBank {<BatteryBank as std::convert::From<BatteryBank>>::from}>

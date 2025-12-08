@@ -1,0 +1,1 @@
+std::iter::Map<std::iter::Enumerate<std::slice::Iter<'_, u32>>, {closure@src/main.rs:24:18: 24:32}>
