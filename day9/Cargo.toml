@@ -1,0 +1,12 @@
+[package]
+name = "day9"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+errors = "0.0.0"
+geo = "0.32.0"
+geo-types = "0.7.18"
+itertools = "0.14.0"
+itertools-num = "0.1.3"
+
