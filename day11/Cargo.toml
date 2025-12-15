@@ -1,9 +1,10 @@
 [package]
-name = "day10"
+name = "day11"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dict = "0.1.5"
 errors = "0.0.0"
 geo = "0.32.0"
 geo-types = "0.7.18"
@@ -11,4 +12,5 @@ good_lp = "1.14.2"
 itertools = "0.14.0"
 itertools-num = "0.1.3"
 lp-modeler = "0.5.0"
+structures = "1.1.0"
 

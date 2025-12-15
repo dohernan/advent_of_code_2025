@@ -1,8 +1,9 @@
 extern crate itertools;
 extern crate itertools_num;
-
+use good_lp::*;
 extern crate lp_modeler;
 
+use std::error::Error;
 use std::{fs, vec};
 
 use itertools::Itertools;
@@ -33,6 +34,21 @@ impl IndicatorLight {
         }
         self.is_goal(combination)
     }
+    fn is_transformed_group_reaches_goal(&self, group: Vec<u128>) -> bool {
+        let mut total_wiring = group.iter().sum::<u128>();
+        let expt = 10_u128.pow(3 * (self.joltages.len() as u32 - 1 as u32));
+        if total_wiring < expt {
+            return false;
+        }
+        while total_wiring > 0 {
+            if total_wiring % 1000 == 0 {
+                return false;
+            }
+            total_wiring /= 1000;
+        }
+
+        true
+    }
 
     fn joltage_position_is_done(&self, position: u16, old: u16) -> bool {
         position > old
@@ -45,18 +61,18 @@ impl IndicatorLight {
         index: usize,
         remaining: u16,
         total: u128,
-    ) -> bool {
+    ) -> usize {
         if index == current_combination.len() {
-            if remaining != 0
-                || current_combination.iter().sum::<u16>() < *max_values.iter().max().unwrap()
-            {
-                return false;
-            }
+            // if remaining != 0
+            //     || current_combination.iter().sum::<u16>() < *max_values.iter().max().unwrap()
+            // {
+            //     return 0;
+            // }
             if self.joltages_transformed == total {
                 println!("Group found: {:?}", current_combination);
-                return true;
+                return index;
             }
-            return false;
+            return 0;
         }
         if index > 0
             && self.joltage_position_is_done(
@@ -68,7 +84,7 @@ impl IndicatorLight {
                 3 * (self.joltages.len() as u32 - 1 - self.wiring_schematics[index - 1][0] as u32),
             );
             if total / expt < self.joltages_transformed / expt {
-                return false;
+                return 0;
             }
         }
 
@@ -83,21 +99,22 @@ impl IndicatorLight {
                 max_values_rec[index] = 0;
             }
             let total_rec: u128 = total + value as u128 * self.wiring_schematics_transformed[index];
-            if self.recursive_check(
+            let recurs = self.recursive_check(
                 &max_values_rec,
                 current_combination,
                 index + 1,
                 remaining - value,
                 total_rec,
-            ) {
-                return true;
+            );
+            if recurs > 0 {
+                return recurs;
             }
         }
 
-        false
+        0
     }
 
-    fn check_groups(&self, of: usize) -> bool {
+    fn check_groups(&self, of: usize) -> usize {
         let groups = &mut self
             .wiring_schematics
             .clone()
@@ -107,35 +124,63 @@ impl IndicatorLight {
         for group in groups {
             if self.is_group_reaches_goal(group.clone()) {
                 println!("Group found: {}", group.len());
-                return true;
+                return group.len();
             }
         }
-        false
+        0
     }
-    fn check_groups2(&self, of: u16) -> bool {
+    fn check_groups2(&mut self) -> usize {
         let mut max_of_this_wiring_schema = vec![0; self.wiring_schematics.len()];
-        for (pos, group) in self.wiring_schematics.iter().enumerate() {
+        let mut wirings_for_joltage = vec![vec![]; self.joltages.len()];
+        for (pos, wiring) in self.wiring_schematics.iter().enumerate() {
             let mut max_times_used = 9999;
-            for joltage_used in group.iter() {
+            for joltage_used in wiring.iter() {
+                wirings_for_joltage[*joltage_used as usize].push(pos);
                 max_times_used = max_times_used.min(self.joltages[*joltage_used as usize])
             }
             max_of_this_wiring_schema[pos] = max_times_used;
         }
+        let mut variables: Vec<VariableDefinition> = vec![];
+        let mut problem = ProblemVariables::new();
+        for i in 0..self.wiring_schematics.len() {
+            variables.push(variable().min(0).integer());
+        }
+        let y: Vec<Variable> = problem.add_all(variables);
 
-        let mut current_combination = vec![0u16; self.wiring_schematics_transformed.len()];
-        self.recursive_check(
-            &max_of_this_wiring_schema.clone(),
-            &mut current_combination,
-            0,
-            of,
-            0,
-        )
+        let mut solution = problem
+            .minimise(y.iter().sum::<Expression>())
+            .using(default_solver); // IBM's coin_cbc by default
+        // for (i, &y_i) in y.iter().enumerate() {
+        //     solution = solution.with(constraint!(y_i <= max_of_this_wiring_schema[i]));
+        // }
+        for (i, wirings_for_joltage) in wirings_for_joltage.iter().enumerate() {
+            let mut sum_of_wirings: Expression = Expression::default();
+            for &wiring_that_uses_that_joltage in wirings_for_joltage.iter() {
+                sum_of_wirings += y[wiring_that_uses_that_joltage];
+            }
+            solution = solution.with(constraint!(sum_of_wirings == self.joltages[i]));
+        }
+        let s = solution.solve().unwrap();
+        let mut result: usize = 0;
+        for y_i in y {
+            println!("a={} ", s.value(y_i));
+            result += s.value(y_i) as usize;
+        }
+        result
+        // let mut current_combination = vec![0u16; self.wiring_schematics_transformed.len()];
+        // self.recursive_check(
+        //     &max_of_this_wiring_schema.clone(),
+        //     &mut current_combination,
+        //     0,
+        //     of,
+        //     0,
+        // )
     }
 
     fn get_min_group(&self) -> usize {
         let length = self.wiring_schematics[0].len();
         for of in 1..=length {
-            if self.check_groups(of) {
+            if self.check_groups(of) > 0 {
                 return of;
             }
         }
@@ -143,16 +188,73 @@ impl IndicatorLight {
         9999999999
     }
 
-    fn get_min_group2(&self) -> usize {
-        let first_of = *self.joltages.iter().max().unwrap() as usize;
-        for of in first_of..=255 {
-            dbg!(of);
-            if self.check_groups2(of as u16) {
+    fn rest_min_group(&mut self) -> usize {
+        let length = self.wiring_schematics[0].len();
+        for of in 1..=length {
+            if self.check_groups(of) > 0 {
                 return of;
             }
         }
         println!("ERROR: NOT FOUND");
         9999999999
+    }
+
+    fn rest_min_all_group(&mut self) -> usize {
+        self.lights_goal.fill(1);
+        let length = self.wiring_schematics[0].len();
+        for of in 1..=length {
+            if self.check_all_groups(of) {
+                return of;
+            }
+        }
+        println!("ERROR: NOT FOUND");
+        9999999999
+    }
+
+    fn check_all_groups(&mut self, of: usize) -> bool {
+        let groups = &mut self
+            .wiring_schematics_transformed
+            .clone()
+            .into_iter()
+            .combinations(of)
+            .collect::<Vec<Vec<u128>>>();
+        for group in groups {
+            if self.is_transformed_group_reaches_goal(group.clone()) {
+                //println!("Group found: {}", group.len());
+                // resta del total cada grupo multiplicado
+                for &mut wiring in group {
+                    self.joltages_transformed -= wiring;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    fn get_min_group2(&mut self) -> usize {
+        let mut res_min_all: usize = 0;
+        let mut a = 0;
+        // 'outer: loop {
+        //     let mut joltages_transformed = self.joltages_transformed;
+        //     while joltages_transformed > 0 {
+        //         if joltages_transformed % 1000 < 9999 {
+        //             break 'outer;
+        //         }
+        //         joltages_transformed /= 1000;
+        //     }
+        //     a = self.rest_min_all_group() as u128;
+
+        //     res_min_all += a as usize;
+        // }
+
+        let mut first_of = 0;
+        let mut joltages_transformed = self.joltages_transformed;
+        while joltages_transformed > 0 {
+            first_of = first_of.max(joltages_transformed % 1000);
+            joltages_transformed /= 1000;
+        }
+
+        self.check_groups2()
     }
 }
 
@@ -245,8 +347,8 @@ fn main() {
     // println!("{}", indicator_light);
     let mut suma = 0;
     let mut suma_jolt = 0;
-    for indicator_light in indicator_lights {
-        suma += indicator_light.get_min_group();
+    for indicator_light in &mut indicator_lights {
+        //suma += indicator_light.get_min_group();
         suma_jolt += dbg!(indicator_light.get_min_group2());
     }
     println!("Sum: {}", suma);
